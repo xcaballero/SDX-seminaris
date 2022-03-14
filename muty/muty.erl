@@ -34,7 +34,14 @@ collect(N, Locks) ->
     end.
 
 stop() ->
+    w1 ! stop,
+    w2 ! stop,
+    w3 ! stop,
+    w4 ! stop.
+    
+stop_distributed() ->
     {w1, 'w1@127.0.0.1'} ! stop,
     {w2, 'w2@127.0.0.1'} ! stop,
     {w3, 'w3@127.0.0.1'} ! stop,
     {w4, 'w4@127.0.0.1'} ! stop.
+
