@@ -41,19 +41,20 @@ wait(Nodes, Master, [], Waiting, TakeRef, MyId, _, Timestamp) ->
 wait(Nodes, Master, Refs, Waiting, TakeRef, MyId, MyClock, Timestamp) ->
     receive
         {request, From, Ref, Id, ReceivedTimestamp} ->
+            NewTimestamp = max(ReceivedTimestamp, Timestamp),
             if
                 ReceivedTimestamp < MyClock ->
                     From ! {ok, Ref},
-                    wait(Nodes, Master, Refs, Waiting, TakeRef, MyId, MyClock, Timestamp);
+                    wait(Nodes, Master, Refs, Waiting, TakeRef, MyId, MyClock, NewTimestamp);
                 ReceivedTimestamp > MyClock ->
-                    wait(Nodes, Master, Refs, [{From, Ref}|Waiting], TakeRef, MyId, MyClock, ReceivedTimestamp);
+                    wait(Nodes, Master, Refs, [{From, Ref}|Waiting], TakeRef, MyId, MyClock, NewTimestamp);
                 ReceivedTimestamp == MyClock ->
                     if
                         Id < MyId -> 
                             From ! {ok, Ref},
-                            wait(Nodes, Master, Refs, Waiting, TakeRef, MyId, MyClock, Timestamp);
+                            wait(Nodes, Master, Refs, Waiting, TakeRef, MyId, MyClock, NewTimestamp);
                         Id >= MyId -> 
-                            wait(Nodes, Master, Refs, [{From, Ref}|Waiting], TakeRef, MyId, MyClock, Timestamp)
+                            wait(Nodes, Master, Refs, [{From, Ref}|Waiting], TakeRef, MyId, MyClock, NewTimestamp)
                     end
             end;
         {ok, Ref} ->
