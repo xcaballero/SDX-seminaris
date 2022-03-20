@@ -12,16 +12,16 @@ init(MyId) ->
             ok
     end.
 
-open(Nodes, MyId, Timestamp) ->
+open(Nodes, MyId, MyClock) ->
     receive
         {take, Master, Ref} ->
-            NewTimestamp = Timestamp + 1,
-            Refs = requests(Nodes, MyId, NewTimestamp),
-            wait(Nodes, Master, Refs, [], Ref, MyId, NewTimestamp);
+            IncMyClock = MyClock + 1,
+            Refs = requests(Nodes, MyId, IncMyClock),
+            wait(Nodes, Master, Refs, [], Ref, MyId, IncMyClock, IncMyClock);
         {request, From,  Ref, _, ReceivedTimestamp} ->
-            NewTimestamp = max(ReceivedTimestamp, Timestamp),
+            NewClock = max(ReceivedTimestamp, MyClock),
             From ! {ok, Ref},
-            open(Nodes, MyId, NewTimestamp);
+            open(Nodes, MyId, NewClock);
         stop ->
             ok
     end.
@@ -35,33 +35,30 @@ requests(Nodes, MyId, Timestamp) ->
       end, 
       Nodes).
 
-wait(Nodes, Master, [], Waiting, TakeRef, MyId, Timestamp) ->
+wait(Nodes, Master, [], Waiting, TakeRef, MyId, _, Timestamp) ->
     Master ! {taken, TakeRef},
     held(Nodes, Waiting, MyId, Timestamp);
-wait(Nodes, Master, Refs, Waiting, TakeRef, MyId, Timestamp) ->
+wait(Nodes, Master, Refs, Waiting, TakeRef, MyId, MyClock, Timestamp) ->
     receive
         {request, From, Ref, Id, ReceivedTimestamp} ->
             if
-                ReceivedTimestamp < Timestamp ->
+                ReceivedTimestamp < MyClock ->
                     From ! {ok, Ref},
-                    wait(Nodes, Master, Refs, Waiting, TakeRef, MyId, Timestamp);
-                ReceivedTimestamp > Timestamp ->
-                    wait(Nodes, Master, Refs, [{From, Ref}|Waiting], TakeRef, MyId, ReceivedTimestamp);
-                ReceivedTimestamp == Timestamp ->
+                    wait(Nodes, Master, Refs, Waiting, TakeRef, MyId, MyClock, Timestamp);
+                ReceivedTimestamp > MyClock ->
+                    wait(Nodes, Master, Refs, [{From, Ref}|Waiting], TakeRef, MyId, MyClock, ReceivedTimestamp);
+                ReceivedTimestamp == MyClock ->
                     if
                         Id < MyId -> 
                             From ! {ok, Ref},
-                            NewRef = make_ref(),
-                            NewTimestamp = Timestamp + 1,
-                            From ! {request, self(), NewRef, MyId, NewTimestamp},
-                            wait(Nodes, Master, [NewRef|Refs], Waiting, TakeRef, MyId, NewTimestamp);
+                            wait(Nodes, Master, Refs, Waiting, TakeRef, MyId, MyClock, Timestamp);
                         Id >= MyId -> 
-                            wait(Nodes, Master, Refs, [{From, Ref}|Waiting], TakeRef, MyId, Timestamp)
+                            wait(Nodes, Master, Refs, [{From, Ref}|Waiting], TakeRef, MyId, MyClock, Timestamp)
                     end
             end;
         {ok, Ref} ->
             NewRefs = lists:delete(Ref, Refs),
-            wait(Nodes, Master, NewRefs, Waiting, TakeRef, MyId, Timestamp);
+            wait(Nodes, Master, NewRefs, Waiting, TakeRef, MyId, MyClock, Timestamp);
         release ->
             ok(Waiting),            
             open(Nodes, MyId, Timestamp)
