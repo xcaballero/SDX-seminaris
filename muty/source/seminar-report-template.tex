@@ -1,0 +1,68 @@
+\documentclass[a4paper, 10pt]{article}
+\usepackage[utf8]{inputenc} % Change according your file encoding
+\usepackage{graphicx}
+\usepackage{pdfpages}
+\usepackage{url}
+\usepackage{float}
+\usepackage{amsmath}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{colortbl}
+\usepackage{hyperref}
+%opening
+\title{Seminar Report: Muty}
+\author{\textbf{Xavier Caballero \& Albert Capdevila}}
+\date{\normalsize\today{}}
+
+\begin{document}
+
+\maketitle
+
+\section{Open questions}
+\subsection{\textbf{Lock1: Deadlock}}
+\textbf{a) What unwanted halting situation can occur when contention increases?\\}
+Quan tenim un nivell de contenció molt elevat es pot produir un \textbf{deadlock}. Fent diverses proves, hem vist que quan el temps de sleep i de work és igual a 50 ms es produeixen una gran quantitat de deadlocks. El motiu és que quan hi ha una contenció tant alta, s’incrementa la possibilitat d’enviar una request al mateix moment i que totes les instàncies es quedin en el estat de wait esperant una resposta. Si ens trobem en aquesta situació, després d’esperar el temps de withdrawal (8000 ms), el worker enviarà un missatge de release.\\\\ 
+\textbf{b) Indicate two situations which can lead to a process withdrawal (i.e., a process gets tired of waiting to be granted access to the critical section). Assume that processes do not fail.\\}
+Les següents situacions poden provocar un withdrawal:
+\begin{itemize}
+\item Quan es produeix un deadlock. (Com s’ha comentat a la pregunta anterior)
+\item Quan el temps de work és major al de withdrawal. En aquest cas els processos que estiguin en estat de waiting rebran un missatge de release per part del worker, ja que el temps de work és major al de withdrawal. 
+\end{itemize}
+\subsection{\textbf{Lock2: Resolving deadlock}}
+\textbf{c) Justify how your code guarantees that only one worker is in the critical section at any time.\\}
+Per tal de que un treballador pugui entrar a la regió crítica necessita que tots els locks acceptin la seva request. En aquesta solució, podríem tenir la següent situació (suposem un escenari amb 3 locks):
+\begin{enumerate}
+\item Tenim els 3 locks en estat open.
+\item El lock amb prioritat 2 demana entrar a la regió crítica i passa al estat de waiting.
+\item El lock amb prioritat 1 envia el OK.
+\item Passat un temps, el lock amb prioritat 1 demana entrar a la regió crítica. 
+\item El lock amb prioritat 2 rebrà la request del 1 i com el identificador és menor enviarà el OK. 
+\item El lock amb prioritat 3 envia el OK al 1 i al 2.
+\item Tant el lock 1 com el 2 han rebut el OK dels altres locks i entren a la regió crítica. 
+\end{enumerate}
+Per evitar que hi hagi més d’un procés a la regió crítica, enviarem el OK i una request amb una referència nova per tal d’assegurar que només entra un procés a la regió crítica. En el cas de l’exemple anterior, el lock amb prioritat 2 enviarà el OK i una request amb una referència nova per tal de garantir que només hi ha un treballador a la regió afectada.\\\\ 
+\textbf{d) Do the situations described in the previous question b) still lead to a process withdrawal in this lock implementation?\\}
+Com que no tenim deadlocks en aquesta solució, la primera situació ja no pot provocar cap withdrawal. En el cas de la segona, com que no es té cap control del temps de work podem continuar tenint withdrawals.\\\\ 
+\textbf{e) What is the main drawback of this lock implementation?\\}
+El principal inconvenient d’aquesta solució és que el repartiment per entrar a la regió critica és molt poc equitatiu. És a dir, les instàncies amb el identificador més petit (més prioritàries) entraren moltes més vegades a la regió crítica que les que tenen un identificador més gran. Com es pot veure en la següent imatge, la diferència és molt gran entre el John (identificador 1) i el George (identificador 4). El primer ha entrat 121 vegades mentre que el segon només 11.
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=1\textwidth,keepaspectratio]{Images/Lock2.png}
+    \caption{Inconvenient principal del Lock2}
+    \label{fig:privLevel}
+\end{figure}
+\subsection{\textbf{Lock3: Lamport's time}}
+\textbf{f) Justify if this lock implementation requires sending an additional request message (as well as the ok message) when a process in the waiting state receives a request message with the same logical time from another process with higher priority.\\}
+En aquest cas no cal enviar una nova request com a la solució anterior. Si pensem en el escenari comentat a la pregunta c, ara el procés més prioritari quan rebi una request actualitzarà el rellotge amb el màxim entre el timestamp que rep i el seu clock. Després, quan vulgui enviar una request primer incrementarà una unitat el seu rellotge i finalment enviarà el missatge. Per tant, en aquest cas ens assegurem que el procés menys prioritari no enviarà el OK perquè el timestamp del procés prioritari serà major.\\\\\\ 
+\textbf{g) Do the situations described in the previous question b) still lead to a process withdrawal in this lock implementation?\\}
+En aquest cas passa el mateix que a la solució anterior. El primer cas no pot passar i el segon si perquè no es té control del temps de work.\\\\    
+\textbf{h) Note that the workers are not involved in the Lamport’s clock. According to this, would it be possible that a worker is given access to a critical section prior to another worker that issued a request to its lock instance logically before (assuming happened-before order)? (Note that workers may send messages to one another independently of the mutual-exclusion protocol).\\}
+Aquesta situació no podria passar perquè l’accés a la regió crítica és en funció de quan es realitza la petició i en cada request s’ha d’enviar el timestamp per tal de controlar tot això. Per tant, és impossible que tinguem la situació de l’enunciat en el lock3. 
+
+
+
+\section{Personal opinion}
+Aquest seminari és molt útil per tal d’entendre diferents algoritmes d’exclusió mútua i quins problemes poden presentar. A més a més, al tenir una interfície gràfica amb el estat dels diferents treballadors podem veure més fàcilment si la nostre implementació funciona bé. Per aquestes raons, pensem que aquest seminari es pot incloure el pròxim curs. 
+
+
+\end{document}
