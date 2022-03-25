@@ -13,7 +13,7 @@ init(Id, Master, Jitter) ->
 server(Id, Master, Nodes, Jitter, MsgVC, Queue) ->
     receive
         {send, Msg} ->
-            NewMsgVC = increment(Id, MsgVC)
+            NewMsgVC = increment(Id, MsgVC),
             multicast(NewMsgVC, Nodes, Jitter),
             Master ! {deliver, NewMsgVC},
             server(Id, Master, Nodes, Jitter, NewMsgVC);
@@ -26,25 +26,29 @@ server(Id, Master, Nodes, Jitter, MsgVC, Queue) ->
                     server(Id, Master, Nodes, Jitter, NewerVC, NewQueue);
                 wait -> 
                     server(Id, Master, Nodes, Jitter, VC, [{FromId, MsgVC, Msg}|Queue])
-            
         stop ->
             ok
     end.
 
 multicast(Msg, Nodes, 0, Id, MsgVC) ->
-    lists:foreach(fun(Node) -> 
-                      Node ! {multicast, Msg} 
-                  end, 
-                  Nodes);
+    lists:foreach(
+        fun(Node) ->
+            Node ! {multicast, Msg}
+        end,
+        Nodes
+    );
 multicast(Msg, Nodes, Jitter, Id, MsgVC) ->
-    lists:foreach(fun(Node) -> 
-                      T = rand:uniform(Jitter),
-                      timer:send_after(T, Node, {multicast, Msg})
-                  end, 
-                  Nodes).
-                  
-deliverReadyMsgs(_, VC, [], Queue) -> {VC, Queue};
-deliverReadyMsgs(Master, VC, [{FromId, MsgVC, Msg}|Rest], Queue) -> 
+    lists:foreach(
+        fun(Node) ->
+            T = rand:uniform(Jitter),
+            timer:send_after(T, Node, {multicast, Msg})
+        end,
+        Nodes
+    ).
+
+deliverReadyMsgs(_, VC, [], Queue) ->
+    {VC, Queue};
+deliverReadyMsgs(Master, VC, [{FromId, MsgVC, Msg} | Rest], Queue) ->
     case checkMsg(FromId, MsgVC, VC, size(VC)) of
         ready ->
             Master ! {deliver, Msg},
@@ -54,7 +58,6 @@ deliverReadyMsgs(Master, VC, [{FromId, MsgVC, Msg}|Rest], Queue) ->
         wait ->
             deliverReadyMsgs(Master, VC, Rest, Queue)
     end.
-
 
 increment(N, VC) ->
     setelement(N, VC, element(N, VC) + 1)
@@ -76,4 +79,4 @@ checkMsg(FromId, MsgVC, VC, N) ->
 newVC(0, List) ->
     list_to_tuple(List);
 newVC(N, List) ->
-    newVC(N-1, [0|List]).
+    newVC(N - 1, [0 | List]).
