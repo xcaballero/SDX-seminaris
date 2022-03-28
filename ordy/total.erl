@@ -14,28 +14,28 @@ server(Master, MaxPrp, MaxAgr, Nodes, Cast, Queue, Jitter) ->
 receive
     {send, Msg} ->
         Ref = make_ref(),
-        request(... , ... , ... , ...),
-        NewCast = [{... , ..., seq:null()}|Cast],
-        server(... , ... , ... , ... , ... , ... , ...);
+        request(Ref, Msg, Nodes, Jitter),
+        NewCast = [{Ref, length(Nodes), seq:null()}|Cast],
+        server(Master, MaxPrp, MaxAgr, Nodes, NewCast, Queue, Jitter);
     {request, From, Ref, Msg} ->
-        NewMaxPrp = ... ,
-         ... ! { ... , ... , ...},
-        NewQueue = queue(..., ... , ... , ... , ...),
-        server(... , ... , ... , ... , ... , ... , ...);
+        NewMaxPrp = seq:maxIncrement(MaxPrp, MaxAgr),
+        From ! { proposal, Ref, NewMaxPrp},
+        NewQueue = queue(Ref, Msg, propsd, NewMaxPrp, Queue),
+        server(Master, NewMaxPrp, MaxAgr, Nodes, Cast, NewQueue, Jitter);
     {proposal, Ref, Num} ->
-        case proposal(... , ... , ...) of
+        case proposal(Ref, Num, Cast) of
             {agreed, MaxNum, NewCast} ->
-                agree(... , ... , ...),
-                server(... , ... , ... , ... , ... , ... , ...);
+                agree(Ref, MaxNum, Nodes),
+                server(Master, MaxPrp, MaxAgr, Nodes, NewCast, Queue, Jitter);
             NewCast ->
-                server(... , ... , ... , ... , ... , ... , ...)
+                server(Master, MaxPrp, MaxAgr, Nodes, NewCast, Queue, Jitter)
         end;
     {agreed, Ref, Num} ->
-        NewQueue = update(... , ... , ...),
-        {AgrMsg, NewerQueue} = agreed(...),
-        deliver(... , ...),
-        NewMaxAgr = ... ,
-        server(... , ... , ... , ... , ... , ... , ...);
+        NewQueue = update(Ref, Num, Queue),
+        {AgrMsg, NewerQueue} = agreed(NewQueue),
+        deliver(Master, AgrMsg),
+        NewMaxAgr = seq:max(MaxAgr, Num),
+        server(Master, MaxPrp, NewMaxAgr, Nodes, Cast, NewerQueue, Jitter);
     stop ->
         ok
 end.
@@ -44,28 +44,28 @@ end.
 request(Ref, Msg, Nodes, 0) ->
     Self = self(),
     lists:foreach(fun(Node) -> 
-                      %% TODO: ADD SOME CODE
+                      Node ! {request, Self, Ref, Msg}
                   end, 
                   Nodes);
 request(Ref, Msg, Nodes, Jitter) ->
     Self = self(),
     lists:foreach(fun(Node) ->
                       T = rand:uniform(Jitter),
-                      timer:send_after(T, Node, ... ) %% TODO: COMPLETE
+                      timer:send_after(T, Node, {request, Self, Ref, Msg})
                   end,
                   Nodes).
         
 %% Sending an agreed message to all nodes
 agree(Ref, Num, Nodes)->
     lists:foreach(fun(Node)-> 
-                      %% TODO: ADD SOME CODE
+                      Node ! {agreed, Ref, Num}
                   end, 
                   Nodes).
 
 %% Delivering messages to the master
 deliver(Master, Messages) ->
     lists:foreach(fun(Msg)-> 
-                      %% TODO: ADD SOME CODE 
+                      Master ! {deliver, Msg}
                   end, 
                   Messages).
                   
