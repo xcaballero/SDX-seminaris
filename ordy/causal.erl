@@ -1,4 +1,4 @@
--module(basic).
+-module(causal).
 -export([start/3]).
 
 start(Id, Master, Jitter) ->
