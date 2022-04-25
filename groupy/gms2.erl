@@ -40,7 +40,7 @@ leader(Name, Master, Slaves) ->
 bcast(_, Msg, Nodes) ->
     lists:foreach(fun(Node) -> Node ! Msg end, Nodes).
 
-slave(Name, Master, Leader, Slaves) ->    
+slave(Name, Master, Leader, Slaves, Ref) ->    
     receive
         {mcast, Msg} ->
             Leader ! {mcast, Msg},
@@ -57,4 +57,15 @@ slave(Name, Master, Leader, Slaves) ->
             ok;
         Error ->
             io:format("slave ~s: strange message ~w~n", [Name, Error])
+    end.
+
+election(Name, Master, Slaves) ->
+    Self = self(),
+    case Slaves of
+        [Self|Rest] ->
+            bcast(Name, {view, Self, Rest}, Rest),
+            leader(Name, Master, Rest);
+        [NewLeader|Rest] ->
+            Ref = erlang:monitor(process, NewLeader),
+            slave(Name, Master, NewLeader, Rest, Ref)
     end.
