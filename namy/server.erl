@@ -13,14 +13,14 @@ stop() ->
 
 init() ->
     io:format("Server: create root domain~n"),
-    server([], 0).
+    server(root, self(), [], 0).
 
 init(Domain, Parent) ->
     io:format("Server: create domain ~w at ~w~n", [Domain, Parent]),
     Parent ! {register, Domain, {domain, self()}},
-    server([], 0).
+    server(Domain, Parent, [], 0).
 
-server(Entries, TTL) ->
+server(Domain, Parent, Entries, TTL) ->
     receive
         {request, From, Req}->
             io:format("Server: received request to solve [~w]~n", [Req]),
@@ -43,6 +43,10 @@ server(Entries, TTL) ->
             server(Entries, TTL);
         stop ->
             io:format("Server: closing down~n", []),
+            if 
+            Domain != root ->
+                Parent ! {deregister, Domain}
+            end,
             ok;
         Error ->
             io:format("Server: reception of strange message ~w~n", [Error]),

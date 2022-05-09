@@ -11,9 +11,9 @@ stop(Name) ->
 init(Domain, Parent) ->
     io:format("Host: create domain ~w at ~w~n", [Domain, Parent]),
     Parent ! {register, Domain, {host, self()}},
-    host().
+    host(Domain, Parent).
 
-host() ->
+host(Domain, Parent) ->
     receive
         {ping, From} ->
             io:format("Host: Ping from ~w~n", [From]),
@@ -21,6 +21,7 @@ host() ->
             host();
         stop ->
             io:format("Host: Closing down~n", []),
+            Parent ! {deregister, Domain},
             ok;
         Error ->
             io:format("Host: reception of strange message ~w~n", [Error]),
