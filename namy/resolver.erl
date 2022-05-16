@@ -27,6 +27,10 @@ resolver(Cache) ->
         stop ->
             io:format("Resolver: closing down~n", []),
             ok;
+        purge ->
+            NewCache = cache:purge(Cache),
+            io:format("Resolver: cache content: ~w~n", [NewCache]),
+            resolver(NewCache);
         Error ->
             io:format("Resolver: reception of strange message ~w~n", [Error]),
             resolver(Cache)

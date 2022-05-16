@@ -18,12 +18,12 @@ host(Domain, Parent) ->
         {ping, From} ->
             io:format("Host: Ping from ~w~n", [From]),
             From ! pong,
-            host();
+            host(Domain, Parent);
         stop ->
             io:format("Host: Closing down~n", []),
             Parent ! {deregister, Domain},
             ok;
         Error ->
             io:format("Host: reception of strange message ~w~n", [Error]),
-            host()
+            host(Domain, Parent)
     end.
