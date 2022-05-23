@@ -32,23 +32,23 @@ connect(_, PeerPid) ->
 schedule_stabilize() ->
     timer:send_interval(?Stabilize, self(), stabilize).
 
-node(MyKey, Predecessor, Successor) ->
+node(MyKey, Predecessor, Successor, Store) ->
     receive 
         {key, Qref, Peer} ->
             Peer ! {Qref, MyKey},
-            node(MyKey, Predecessor, Successor);
+            node(MyKey, Predecessor, Successor, Store);
         {notify, NewPeer} ->
             NewPredecessor = notify(NewPeer, MyKey, Predecessor),
-            node(MyKey, NewPredecessor, Successor);
+            node(MyKey, NewPredecessor, Successor, Store);
         {request, Peer} ->
             request(Peer, Predecessor),
-            node(MyKey, Predecessor, Successor);
+            node(MyKey, Predecessor, Successor, Store);
         {status, Pred} ->
             NewSuccessor = stabilize(Pred, MyKey, Successor),
-            node(MyKey, Predecessor, NewSuccessor);
+            node(MyKey, Predecessor, NewSuccessor, Store);
         stabilize ->
             stabilize(Successor),
-            node(MyKey, Predecessor, Successor);
+            node(MyKey, Predecessor, Successor, Store);
         stop ->
             ok;
         probe ->
@@ -59,7 +59,17 @@ node(MyKey, Predecessor, Successor) ->
             node(MyKey, Predecessor, Successor);
         {probe, RefKey, Nodes, T} ->
             forward_probe(MyKey, RefKey, [MyKey|Nodes], T, Successor),
-            node(MyKey, Predecessor, Successor)
+            node(MyKey, Predecessor, Successor);
+        {add, Key, Value, Qref, Client} ->
+            Added = add(Key, Value, Qref, Client,
+            MyKey, Predecessor, Successor, Store),
+            node(MyKey, Predecessor, Successor, Added);
+        {lookup, Key, Qref, Client} ->
+            lookup(Key, Qref, Client, MyKey, Predecessor, Successor, Store),
+            node(MyKey, Predecessor, Successor, Store);
+        {handover, Elements} ->
+            Merged = storage:merge(Store, Elements),
+            node(MyKey, Predecessor, Successor, Merged)
    end.
 
 stabilize(Pred, MyKey, Successor) ->
@@ -95,9 +105,10 @@ request(Peer, Predecessor) ->
             Peer ! {status, {Pkey, Ppid}}
     end.
 
-notify({Nkey, Npid}, MyKey, Predecessor) ->
+notify({Nkey, Npid}, MyKey, Predecessor, Store) ->
     case Predecessor of
         nil ->
+            Keep = handover(Store, MyKey, Nkey, Npid),
             {Nkey, Npid};
         {Pkey,  _} ->
             case key:between(Nkey, Pkey, MyKey) of
@@ -120,3 +131,29 @@ remove_probe(MyKey, Nodes, T) ->
 forward_probe(MyKey, RefKey, Nodes, T, {_, Spid}) ->
     Spid ! {probe, RefKey, Nodes, T},
     io:format("Node ~w forwarded probe started by node ~w~n", [MyKey, RefKey]).
+
+add(Key, Value, Qref, Client, _, nil, {_, Spid}, Store) ->
+    Spid ! {add, Key, Value, Qref, Client},
+    Store;
+add(Key, Value, Qref, Client, MyKey, {Pkey, _}, {_, Spid}, Store) ->
+    case key:between(Key , Pkey , MyKey) of 
+        true ->
+            Added = storage:add(Key, Value, Store), 
+            Client ! {Qref, ok},
+            Added;
+        false ->
+            Spid ! {add, Key, Value, Qref, Client},
+            Store
+    end.
+    
+lookup(Key, Qref, Client, _, nil, {_, Spid}, _) ->
+    Spid ! {lookup, Key, Qref, Client};
+lookup(Key, Qref, Client, MyKey, {Pkey, _}, {_, Spid}, Store) ->
+    case key:between(Key, Pkey , MyKey) of
+        true ->
+        Result = storage:lookup(Key, Store),
+        Client ! {Qref, Result};
+    false ->
+        Spid ! {lookup, Key, Qref, Client}
+    end.
+    
