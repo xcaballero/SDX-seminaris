@@ -1,4 +1,4 @@
--module(node2).
+-module(node3).
 -export([start/1, start/2]).
 
 -define(Stabilize, 1000).
@@ -15,7 +15,7 @@ init(MyKey, PeerPid) ->
     Predecessor = nil,
     {ok, Successor} = connect(MyKey, PeerPid),
     schedule_stabilize(),    
-    node(MyKey, Predecessor, Successor, storage:create()).
+    node(MyKey, Predecessor, Successor, nil, storage:create()).
 
 connect(MyKey, nil) ->
     {ok, {MyKey, self()}};
@@ -24,7 +24,8 @@ connect(_, PeerPid) ->
     PeerPid ! {key, Qref, self()},
     receive
         {Qref, Skey} ->
-            {ok, {Skey, PeerPid}}
+            Sref = monit(PeerPid),
+            {ok, {Skey, Sref, PeerPid}}
     after ?Timeout ->
         io:format("Timeout: no response from ~w~n", [PeerPid])
     end.
@@ -32,85 +33,91 @@ connect(_, PeerPid) ->
 schedule_stabilize() ->
     timer:send_interval(?Stabilize, self(), stabilize).
 
-node(MyKey, Predecessor, Successor, Store) ->
+node(MyKey, Predecessor, Successor, Next, Store) ->
     receive 
         {key, Qref, Peer} ->
             Peer ! {Qref, MyKey},
-            node(MyKey, Predecessor, Successor, Store);
+            node(MyKey, Predecessor, Successor, Next, Store);
         {notify, NewPeer} ->
             {NewPredecessor, NewStore} = notify(NewPeer, MyKey, Predecessor, Store),
-            node(MyKey, NewPredecessor, Successor, NewStore);
+            node(MyKey, NewPredecessor, Successor, Next, NewStore);
         {request, Peer} ->
-            request(Peer, Predecessor),
-            node(MyKey, Predecessor, Successor, Store);
-        {status, Pred} ->
-            NewSuccessor = stabilize(Pred, MyKey, Successor),
-            node(MyKey, Predecessor, NewSuccessor, Store);
+            request(Peer, Predecessor, Successor),
+            node(MyKey, Predecessor, Successor, Next, Store);
+        {status, Pred, Nx} ->
+            {NewSuccessor, NewNext} = stabilize(Pred, Nx, MyKey, Successor),
+            node(MyKey, Predecessor, NewSuccessor, NewNext, Store);
         stabilize ->
             stabilize(Successor),
-            node(MyKey, Predecessor, Successor, Store);
+            node(MyKey, Predecessor, Successor, Next, Store);
         stop ->
             ok;
         probe ->
             create_probe(MyKey, Successor),
-            node(MyKey, Predecessor, Successor, Store);
+            node(MyKey, Predecessor, Successor, Next, Store);
         {probe, MyKey, Nodes, T} ->
             remove_probe(MyKey, Nodes, T),
-            node(MyKey, Predecessor, Successor, Store);
+            node(MyKey, Predecessor, Successor, Next, Store);
         {probe, RefKey, Nodes, T} ->
             forward_probe(MyKey, RefKey, [MyKey|Nodes], T, Successor),
-            node(MyKey, Predecessor, Successor, Store);
+            node(MyKey, Predecessor, Successor, Next, Store);
         {add, Key, Value, Qref, Client} ->
             Added = add(Key, Value, Qref, Client,
                         MyKey, Predecessor, Successor, Store),
-            node(MyKey, Predecessor, Successor, Added);
+            node(MyKey, Predecessor, Successor, Next, Added);
         {lookup, Key, Qref, Client} ->
             lookup(Key, Qref, Client, MyKey, Predecessor, Successor, Store),
-            node(MyKey, Predecessor, Successor, Store);
+            node(MyKey, Predecessor, Successor, Next, Store);
         {handover, Elements} ->
             Merged = storage:merge(Store, Elements),
-            node(MyKey, Predecessor, Successor, Merged)
+            node(MyKey, Predecessor, Successor, Next, Merged)
+        {'DOWN', Ref, process, _, _} ->
+            {NewPred, NewSucc, NewNext} = down(Ref, Predecessor, Successor, Next),
+            node(MyKey, NewPred, NewSucc, NewNext, Store);
    end.
 
-stabilize(Pred, MyKey, Successor) ->
-  {Skey, Spid} = Successor,
+stabilize(Pred, Nx, MyKey, Successor) ->
+  {Skey, Sref, Spid} = Successor,
   case Pred of
       nil ->
           Spid ! {notify, {MyKey, self()}},
-          Successor;
+          {Successor, Nx};
       {MyKey, _} ->
-          Successor;
+          {Successor, Nx};
       {Skey, _} ->
           Spid ! {notify, {MyKey, self()}},
-          Successor;
-      {Xkey, _} ->
+          {Successor, Nx};
+      {Xkey, Xpid} ->
             case key:between(Xkey, MyKey, Skey) of
                 true ->
+                    demonit(Sref),
+                    Xref = monit(Xpid),
                     self() ! stabilize,
-                    Pred;
+                    {{Xkey, Xref, Xpid}, {Skey, Spid};
                 false ->
                     Spid ! {notify, {MyKey, self()}},
-                    Successor
+                    {Successor, Nx}
             end
     end.
 
 stabilize({_, Spid}) ->
     Spid ! {request, self()}.
 
-request(Peer, Predecessor) ->
+request(Peer, Predecessor, {Skey, Spid}) ->
     case Predecessor of
         nil ->
-            Peer ! {status, nil};
+            Peer ! {status, nil, {Skey, Spid}};
         {Pkey, Ppid} ->
-            Peer ! {status, {Pkey, Ppid}}
+            Peer ! {status, {Pkey, Ppid}, {Skey, Spid}}
     end.
 
 notify({Nkey, Npid}, MyKey, Predecessor, Store) ->
     case Predecessor of
         nil ->
+            Nref = monit(Npid),
             Keep = handover(Store, MyKey, Nkey, Npid),
-            {{Nkey, Npid}, Keep};
-        {Pkey,  _} ->
+            {{Nkey, Nref, Npid}, Keep};
+        {Pkey, _, _} ->
             case key:between(Nkey, Pkey, MyKey) of
                 true ->
                     Keep = handover(Store, MyKey, Nkey, Npid),
@@ -162,4 +169,19 @@ handover(Store, MyKey, Nkey, Npid) ->
     {Keep, Leave} = storage:split(MyKey, Nkey, Store),
     Npid ! {handover, Leave},
     Keep.
+
+monit(Pid) ->
+    erlang:monitor(process, Pid).
+
+demonit(nil) ->
+    ok;
+demonit(MonitorRef) ->
+    erlang:demonitor(MonitorRef, [flush]).
+
+down(Ref, {_, Ref, _}, Successor, Next) ->
+    {nil, Successor, Next};
+down(Ref, Predecessor, {_, Ref, _}, {Nkey, Npid}) ->
+    Nref = monit(Npid),
+    self() ! stabilize.
+    {Predecessor, {Nkey, Nref, Npid}, nil}.
     
